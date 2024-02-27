@@ -22,6 +22,6 @@ jobs:
       with:
         release-branch: main
     - name: Build
-      run: cargo build --verbose --release --config version=${{ steps.version.outputs.version }}
+      run: cargo build --verbose --release
     - name: Run tests
       run: cargo test --verbose
