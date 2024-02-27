@@ -22,8 +22,10 @@ jobs:
       with:
         release-branch: main
     - name: Install pre-reqs
-      run: sudo apt install libdbus-glib-1-dev
-    - name: Build
-      run: cargo build --verbose --release
+      run: cargo install cross
+    - name: Build linux
+      run: cross build --verbose --release --target x86_64-unknown-linux-gnu
+    - name: Build windows
+      run: cross build --verbose --release --target x86_64-pc-windows-gnu
     - name: Run tests
-      run: cargo test --verbose
+      run: cargo test --verbose --release
