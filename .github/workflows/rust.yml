@@ -27,5 +27,13 @@ jobs:
       run: cross build --verbose --release --target x86_64-unknown-linux-gnu
     - name: Build windows
       run: cross build --verbose --release --target x86_64-pc-windows-gnu
-    - name: List (temp)
-      run: ls -l -R
+    - name: Archive production artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: packages
+        path: |
+          targets/x86_64-unknown-linux-gnu/release/*.d
+          targets/x86_64-unknown-linux-gnu/release/*.so
+          targets/x86_64-pc-windows-gnu/release/*.d
+          targets/x86_64-pc-windows-gnu/release/*.dll
+          targets/x86_64-pc-windows-gnu/release/*.pdb
