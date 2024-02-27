@@ -36,4 +36,10 @@ jobs:
           target/x86_64-unknown-linux-gnu/release/*.so
           target/x86_64-pc-windows-gnu/release/*.d
           target/x86_64-pc-windows-gnu/release/*.dll
-          target/x86_64-pc-windows-gnu/release/*.pdb
+          target/x86_64-pc-windows-gnu/release/*.pdb          
+    - name: Tag the commit
+      run: |
+        git config --global user.email "no-reply@vaettir.net"
+        git config --global user.name "Tagger"
+        git tag -a ${{ steps.version.outputs.version }} -m "Version ${{ steps.version.outputs.version }}"
+        git push --follow-tags
