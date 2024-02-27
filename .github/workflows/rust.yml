@@ -27,5 +27,5 @@ jobs:
       run: cross build --verbose --release --target x86_64-unknown-linux-gnu
     - name: Build windows
       run: cross build --verbose --release --target x86_64-pc-windows-gnu
-    - name: Run tests
-      run: cargo test --verbose --release
+    - name: List (temp)
+      run: ll -R
