@@ -4,9 +4,9 @@ use std::mem::size_of;
 use std::ptr::{null, null_mut};
 use std::slice::from_raw_parts;
 use std::sync::{Arc};
-use btleplug::api::{BDAddr, Central, CentralEvent, Characteristic, CharPropFlags, Manager as _, ParseBDAddrError, Peripheral as _, ScanFilter, WriteType};
+use btleplug::api::{BDAddr, Central, CentralEvent, Characteristic, CharPropFlags, Manager as _, Peripheral as _, ScanFilter, WriteType};
 use btleplug::{Error, Result as BleResult};
-use btleplug::platform::{Adapter, Manager, Peripheral, PeripheralId};
+use btleplug::platform::{Adapter, Manager, Peripheral};
 use btleplug::Error as BleError;
 use futures::StreamExt;
 use tokio::runtime::Runtime;
@@ -153,7 +153,9 @@ unsafe fn error_to_result(e: &Error) -> c_int {
 
 unsafe fn get_long_addr(a: BDAddr) -> u64 {
     let addr = a.into_inner();
-    u64::from_be_bytes(addr)
+    let mut lbytes = [0u8;8];
+    lbytes[2..].copy_from_slice(&addr);
+    u64::from_be_bytes(lbytes)
 }
 
 #[no_mangle]
