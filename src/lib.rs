@@ -8,7 +8,7 @@ use btleplug::api::{BDAddr, Central, CentralEvent, Characteristic, CharPropFlags
 use btleplug::{Error, Result as BleResult};
 use btleplug::platform::{Adapter, Manager, Peripheral};
 use btleplug::Error as BleError;
-use futures::StreamExt;
+use futures::{StreamExt};
 use tokio::runtime::Runtime;
 use tokio::sync::Mutex;
 use uuid::Uuid;
@@ -30,7 +30,7 @@ const ERROR_UUID: c_int = 109;
 const ERROR_INVALID_BD_ADDR: c_int = 110;
 const ERROR_RUNTIME_ERROR: c_int = 111;
 
-type PeripheralFoundCallback = extern "C" fn(id: u64, peripheral: *mut CPeripheral, services: *const Uuid, service_count: c_int);
+type PeripheralFoundCallback = extern "C" fn(id: u64, peripheral: *mut CPeripheral, services: *const Uuid, service_count: c_int) -> c_int;
 type PeripheralEventCallback = extern "C" fn(id: u64);
 type CompletedCallback = extern "C" fn(result: c_int);
 
@@ -229,24 +229,33 @@ pub unsafe extern "C" fn set_event_callbacks(
     runtime.spawn(async move {
         let adapter = m.adapter.as_ref().unwrap();
         let mut events = adapter.events().await?;
+        let weak = Arc::downgrade(&m);
+        drop(m);
+
         debug!("Starting scan");
 
         while let Some(event) = events.next().await {
-            let l_mod = Arc::clone(&m);
-            let adapter = m.adapter.as_ref().unwrap();
             match event {
                 CentralEvent::DeviceDiscovered(id) => {
                     debug!("Device discovered: {:?}", id);
+                    let l_mod = match weak.upgrade()  {
+                        None => { break; }
+                        Some(a) => {a}
+                    };
+                    let adapter = l_mod.adapter.as_ref().unwrap();
                     match adapter.peripheral(&id).await {
                         Ok(p) => {
                             info!("Sending peripheral {:?}", id);
                             let raw = Box::into_raw(Box::new(CPeripheral::new(Arc::clone(&l_mod), p, Vec::default())));
-                            found(
+                            if 0 == found(
                                 get_long_addr((*raw).p.peripheral.address()),
                                 raw,
                                 null(),
                                 0
-                            );
+                            ) {
+                                // The handle was rejected, drop it
+                                free_ptr(raw);
+                            }
                         }
                         Err(e) => {
                             error!("Failed to find discovered device for {:#}, {:?}", id, e);
@@ -255,16 +264,24 @@ pub unsafe extern "C" fn set_event_callbacks(
                 }
                 CentralEvent::ServicesAdvertisement { id, services } => {
                     debug!("Services discovered: {:?} : {:?}", id, services);
+                    let l_mod = match weak.upgrade()  {
+                        None => { break; }
+                        Some(a) => {a}
+                    };
+                    let adapter = l_mod.adapter.as_ref().unwrap();
                     match adapter.peripheral(&id).await {
                         Ok(p) => {
                             info!("Sending peripheral {:?}", id);
                             let raw = Box::into_raw(Box::new(CPeripheral::new(Arc::clone(&l_mod), p, services)));
-                            found(
+                            if 0 == found(
                                 get_long_addr((*raw).p.peripheral.address()),
                                 raw,
                                 (*raw).p.services.as_ptr(),
                                 (*raw).p.services.len() as c_int
-                            );
+                            ) {
+                                // The handle was rejected, drop it
+                                free_ptr(raw);
+                            }
                         }
                         Err(e) => {
                             error!("Failed to find discovered device for {:#}, {:?}", id, e);
@@ -273,6 +290,11 @@ pub unsafe extern "C" fn set_event_callbacks(
                 },
                 CentralEvent::DeviceDisconnected(id) => {
                     info!("Device disconnected : {:?}", id);
+                    let l_mod = match weak.upgrade()  {
+                        None => { break; }
+                        Some(a) => {a}
+                    };
+                    let adapter = l_mod.adapter.as_ref().unwrap();
                     match adapter.peripheral(&id).await {
                         Ok(p) => {
                             disconnected(get_long_addr(p.address()));
@@ -859,7 +881,6 @@ pub unsafe extern "C" fn free_string(s: *mut c_char) -> c_int {
 
 #[cfg(test)]
 mod tests {
-
     #[test]
     fn it_works() {
     }
