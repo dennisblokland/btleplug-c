@@ -206,7 +206,6 @@ pub unsafe extern "C" fn create_module(module: *mut *mut CModule) -> c_int {
 #[no_mangle]
 pub unsafe extern "C" fn set_event_callbacks(
     module: *mut CModule,
-    include_services: bool,
     found: PeripheralFoundCallback,
     disconnected: PeripheralEventCallback,
 ) -> c_int {
@@ -238,41 +237,37 @@ pub unsafe extern "C" fn set_event_callbacks(
             match event {
                 CentralEvent::DeviceDiscovered(id) => {
                     debug!("Device discovered: {:?}", id);
-                    if !include_services {
-                        match adapter.peripheral(&id).await {
-                            Ok(p) => {
-                                info!("Sending peripheral {:?}", id);
-                                let raw = Box::into_raw(Box::new(CPeripheral::new(Arc::clone(&l_mod), p, Vec::default())));
-                                found(
-                                    get_long_addr((*raw).p.peripheral.address()),
-                                    raw,
-                                    null(),
-                                    0
-                                );
-                            }
-                            Err(e) => {
-                                error!("Failed to find discovered device for {:#}, {:?}", id, e);
-                            }
+                    match adapter.peripheral(&id).await {
+                        Ok(p) => {
+                            info!("Sending peripheral {:?}", id);
+                            let raw = Box::into_raw(Box::new(CPeripheral::new(Arc::clone(&l_mod), p, Vec::default())));
+                            found(
+                                get_long_addr((*raw).p.peripheral.address()),
+                                raw,
+                                null(),
+                                0
+                            );
+                        }
+                        Err(e) => {
+                            error!("Failed to find discovered device for {:#}, {:?}", id, e);
                         }
                     }
                 }
                 CentralEvent::ServicesAdvertisement { id, services } => {
                     debug!("Services discovered: {:?} : {:?}", id, services);
-                    if include_services {
-                        match adapter.peripheral(&id).await {
-                            Ok(p) => {
-                                info!("Sending peripheral {:?}", id);
-                                let raw = Box::into_raw(Box::new(CPeripheral::new(Arc::clone(&l_mod), p, services)));
-                                found(
-                                    get_long_addr((*raw).p.peripheral.address()),
-                                    raw,
-                                    (*raw).p.services.as_ptr(),
-                                    (*raw).p.services.len() as c_int
-                                );
-                            }
-                            Err(e) => {
-                                error!("Failed to find discovered device for {:#}, {:?}", id, e);
-                            }
+                    match adapter.peripheral(&id).await {
+                        Ok(p) => {
+                            info!("Sending peripheral {:?}", id);
+                            let raw = Box::into_raw(Box::new(CPeripheral::new(Arc::clone(&l_mod), p, services)));
+                            found(
+                                get_long_addr((*raw).p.peripheral.address()),
+                                raw,
+                                (*raw).p.services.as_ptr(),
+                                (*raw).p.services.len() as c_int
+                            );
+                        }
+                        Err(e) => {
+                            error!("Failed to find discovered device for {:#}, {:?}", id, e);
                         }
                     }
                 },
@@ -864,6 +859,7 @@ pub unsafe extern "C" fn free_string(s: *mut c_char) -> c_int {
 
 #[cfg(test)]
 mod tests {
+
     #[test]
     fn it_works() {
     }
