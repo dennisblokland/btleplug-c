@@ -31,6 +31,7 @@ const ERROR_INVALID_BD_ADDR: c_int = 110;
 const ERROR_RUNTIME_ERROR: c_int = 111;
 
 type PeripheralFoundCallback = extern "C" fn(id: u64, peripheral: *mut CPeripheral, services: *const Uuid, service_count: c_int);
+type PeripheralEventCallback = extern "C" fn(id: u64);
 type CompletedCallback = extern "C" fn(result: c_int);
 
 fn set_error_string(module: &*mut CModule, str: CString) {
@@ -179,7 +180,7 @@ pub unsafe extern "C" fn create_module(module: *mut *mut CModule) -> c_int {
     let runtime = match Runtime::new(){
         Ok(r) => r,
         Err(e) => {
-            warn!("Failed to initialize tokio::Runtime {:#?}", e);
+            warn!("Failed to initialize tokio::Runtime {:?}", e);
             *module = Box::into_raw(Box::new(CModule::new(None, None)));
             set_error_string(&*module, CString::new(e.to_string()).unwrap());
             return ERROR_FAIL;
@@ -187,10 +188,10 @@ pub unsafe extern "C" fn create_module(module: *mut *mut CModule) -> c_int {
     };
 
     debug!("Initializing adapter with runtime");
-    let adapter = match runtime.block_on(get_manager()){
+    let adapter = match runtime.block_on(get_manager()) {
         Ok(a) => a,
         Err(e) => {
-            warn!("Failed to initialize Adapter {:#?}", e);
+            warn!("Failed to initialize Adapter {:?}", e);
             *module = Box::into_raw(Box::new(CModule::new(Some(runtime), None)));
             set_error(&*module, &e);
             return error_to_result(&e);
@@ -203,99 +204,173 @@ pub unsafe extern "C" fn create_module(module: *mut *mut CModule) -> c_int {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn start_scan_peripherals(
+pub unsafe extern "C" fn set_event_callbacks(
     module: *mut CModule,
-    service_uuids: *mut Uuid,
-    service_uuid_count: i32,
     include_services: bool,
-    callback: PeripheralFoundCallback,
+    found: PeripheralFoundCallback,
+    disconnected: PeripheralEventCallback,
 ) -> c_int {
+    trace!("Enter: set_event_callbacks");
     if module.is_null() {
+        error!("null module");
         return INVALID_ARGUMENT;
     }
 
     let m = &(*module).module;
     if m.adapter.is_none() || m.runtime.is_none() {
+        error!("null adapter/runtime");
         set_error_str(&module, "Invalid module");
         return INVALID_ARGUMENT;
     }
 
     let runtime = m.runtime.as_ref().unwrap();
 
-    let filter = match service_uuid_count {
-        0 => ScanFilter::default(),
-        1..=100 => {
-            if service_uuids.is_null() {
-                set_error_str(&module, "Null argument: service_uuids");
-                return INVALID_ARGUMENT;
-            }
-            let mut v = Vec::new();
-            for i in 0..service_uuid_count {
-                v.push(*service_uuids.offset(i as isize));
-            }
-            ScanFilter { services: v }
-        },
-        _ => {
-            set_error_str(&module, "Out of range: service_uuid_count must be in range 1..100");
-            return ERROR_FAIL;
-        }
-    };
-
     let m = (*module).module.clone();
 
     runtime.spawn(async move {
         let adapter = m.adapter.as_ref().unwrap();
         let mut events = adapter.events().await?;
-        adapter.start_scan(filter).await?;
+        debug!("Starting scan");
 
         while let Some(event) = events.next().await {
             let l_mod = Arc::clone(&m);
             let adapter = m.adapter.as_ref().unwrap();
             match event {
                 CentralEvent::DeviceDiscovered(id) => {
+                    debug!("Device discovered: {:?}", id);
                     if !include_services {
-                        if let Ok(p) = adapter.peripheral(&id).await {
-                            let raw = Box::into_raw(Box::new(CPeripheral::new(Arc::clone(&l_mod), p, Vec::default())));
-                            callback(
-                                get_long_addr((*raw).p.peripheral.address()),
-                                raw,
-                                null(),
-                                0
-                            );
+                        match adapter.peripheral(&id).await {
+                            Ok(p) => {
+                                info!("Sending peripheral {:?}", id);
+                                let raw = Box::into_raw(Box::new(CPeripheral::new(Arc::clone(&l_mod), p, Vec::default())));
+                                found(
+                                    get_long_addr((*raw).p.peripheral.address()),
+                                    raw,
+                                    null(),
+                                    0
+                                );
+                            }
+                            Err(e) => {
+                                error!("Failed to find discovered device for {:#}, {:?}", id, e);
+                            }
                         }
                     }
                 }
                 CentralEvent::ServicesAdvertisement { id, services } => {
+                    debug!("Services discovered: {:?} : {:?}", id, services);
                     if include_services {
-                        if let Ok(p) = adapter.peripheral(&id).await {
-                            let raw = Box::into_raw(Box::new(CPeripheral::new(Arc::clone(&l_mod), p, services)));
-                            callback(
-                                get_long_addr((*raw).p.peripheral.address()),
-                                raw,
-                                (*raw).p.services.as_ptr(),
-                                (*raw).p.services.len() as c_int
-                            );
+                        match adapter.peripheral(&id).await {
+                            Ok(p) => {
+                                info!("Sending peripheral {:?}", id);
+                                let raw = Box::into_raw(Box::new(CPeripheral::new(Arc::clone(&l_mod), p, services)));
+                                found(
+                                    get_long_addr((*raw).p.peripheral.address()),
+                                    raw,
+                                    (*raw).p.services.as_ptr(),
+                                    (*raw).p.services.len() as c_int
+                                );
+                            }
+                            Err(e) => {
+                                error!("Failed to find discovered device for {:#}, {:?}", id, e);
+                            }
                         }
                     }
                 },
+                CentralEvent::DeviceDisconnected(id) => {
+                    info!("Device disconnected : {:?}", id);
+                    match adapter.peripheral(&id).await {
+                        Ok(p) => {
+                            disconnected(get_long_addr(p.address()));
+                        }
+                        Err(e) => {
+                            error!("Failed to find disconnected device for {:#}, {:?}", id, e);
+                        }
+                    }
+                }
                 _ => { }
             }
         };
+        info!("Event listening ended!");
         Ok::<(), BleError>(())
     });
 
+    trace!("Success: set_event_callbacks");
     SUCCESS
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn stop_scan_peripherals(module: *mut CModule) -> c_int {
+pub unsafe extern "C" fn start_scan_peripherals(
+    module: *mut CModule,
+    service_uuids: *mut Uuid,
+    service_uuid_count: i32,
+) -> c_int {
+    trace!("Enter: peripheral_is_connected");
     if module.is_null() {
+        error!("null module");
+        return INVALID_ARGUMENT;
+    }
+
+    let m = &(*module).module;
+    if m.adapter.is_none() || m.runtime.is_none() {
+        error!("null adapter/runtime");
+        set_error_str(&module, "Invalid module");
+        return INVALID_ARGUMENT;
+    }
+
+    let runtime = m.runtime.as_ref().unwrap();
+    let adapter = m.adapter.as_ref().unwrap();
+
+    let filter = match service_uuid_count {
+        0 => {
+            debug!("No filters applied");
+            ScanFilter::default()
+        }
+        1..=100 => {
+            if service_uuids.is_null() {
+                set_error_str(&module, "Null argument: service_uuids");
+                return INVALID_ARGUMENT;
+            }
+
+            let mut v = Vec::new();
+            for i in 0..service_uuid_count {
+                v.push(*service_uuids.offset(i as isize));
+            }
+
+            debug!("Applying filters to scan: {:?}", v);
+            ScanFilter { services: v }
+        }
+        _ => {
+            error!("Invalid number of filters provided: {service_uuid_count}");
+            set_error_str(&module, "Out of range: service_uuid_count must be in range 1..100");
+            return ERROR_FAIL;
+        }
+    };
+
+    match runtime.block_on(adapter.start_scan(filter)) {
+        Ok(_) => {
+            trace!("Success: start_scan_peripherals");
+            SUCCESS
+        }
+        Err(e) => {
+            error!("Error start_scan: {:?}", e);
+            set_error(&module, &e);
+            error_to_result(&e)
+        }
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn stop_scan_peripherals(module: *mut CModule) -> c_int {
+    trace!("Enter: stop_scan_peripherals");
+    if module.is_null() {
+        error!("null module");
         return INVALID_ARGUMENT;
     }
 
     let m = &(*module).module;
 
     if m.adapter.is_none() || m.runtime.is_none() {
+        error!("null adapter/runtime");
         set_error_str(&module, "Invalid module");
         return INVALID_ARGUMENT;
     }
@@ -305,12 +380,14 @@ pub unsafe extern "C" fn stop_scan_peripherals(module: *mut CModule) -> c_int {
 
     match runtime.block_on(adapter.stop_scan()) {
         Err(e) => {
+            error!("error in stop_scan: {:?}", e);
             set_error(&module, &e);
             return error_to_result(&e);
         },
         _ => {},
     };
 
+    trace!("Success: stop_scan_peripherals");
     SUCCESS
 }
 
