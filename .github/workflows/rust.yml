@@ -30,7 +30,7 @@ jobs:
     - name: Archive production artifacts
       uses: actions/upload-artifact@v3
       with:
-        name: packages
+        name: binaries
         path: |
           target/x86_64-unknown-linux-gnu/release/*.so
           target/x86_64-pc-windows-gnu/release/*.dll
