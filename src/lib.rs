@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::ffi::{c_char, c_int, CString};
 use std::mem::size_of;
 use std::ptr::{null, null_mut};
@@ -233,6 +233,7 @@ pub unsafe extern "C" fn set_event_callbacks(
         drop(m);
 
         debug!("Starting scan");
+        let mut device_map = HashMap::new();
 
         while let Some(event) = events.next().await {
             match event {
@@ -247,8 +248,10 @@ pub unsafe extern "C" fn set_event_callbacks(
                         Ok(p) => {
                             info!("Sending peripheral {:?}", id);
                             let raw = Box::into_raw(Box::new(CPeripheral::new(Arc::clone(&l_mod), p, Vec::default())));
+                            let addr = get_long_addr((*raw).p.peripheral.address());
+                            device_map.insert(id, addr);
                             if 0 == found(
-                                get_long_addr((*raw).p.peripheral.address()),
+                                addr,
                                 raw,
                                 null(),
                                 0
@@ -271,10 +274,11 @@ pub unsafe extern "C" fn set_event_callbacks(
                     let adapter = l_mod.adapter.as_ref().unwrap();
                     match adapter.peripheral(&id).await {
                         Ok(p) => {
-                            info!("Sending peripheral {:?}", id);
-                            let raw = Box::into_raw(Box::new(CPeripheral::new(Arc::clone(&l_mod), p, services)));
+                            let raw = Box::into_raw(Box::new(CPeripheral::new(Arc::clone(&l_mod), p, Vec::default())));
+                            let addr = get_long_addr((*raw).p.peripheral.address());
+                            device_map.insert(id, addr);
                             if 0 == found(
-                                get_long_addr((*raw).p.peripheral.address()),
+                                addr,
                                 raw,
                                 (*raw).p.services.as_ptr(),
                                 (*raw).p.services.len() as c_int
@@ -290,17 +294,12 @@ pub unsafe extern "C" fn set_event_callbacks(
                 },
                 CentralEvent::DeviceDisconnected(id) => {
                     info!("Device disconnected : {:?}", id);
-                    let l_mod = match weak.upgrade()  {
-                        None => { break; }
-                        Some(a) => {a}
-                    };
-                    let adapter = l_mod.adapter.as_ref().unwrap();
-                    match adapter.peripheral(&id).await {
-                        Ok(p) => {
-                            disconnected(get_long_addr(p.address()));
+                    match device_map.get(&id) {
+                        Some(addr) => {
+                            disconnected(*addr);
                         }
-                        Err(e) => {
-                            error!("Failed to find disconnected device for {:#}, {:?}", id, e);
+                        None => {
+                            warn!("Disconnect from unrecognized peripheral: {:?}", id);
                         }
                     }
                 }
