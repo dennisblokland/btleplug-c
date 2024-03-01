@@ -47,7 +47,7 @@ jobs:
     - name: Upload artifacts
       uses: actions/upload-artifact@v3
       with:
-        name: win-x64
+        name: linux-x64
         path: |
           target/*/release/*.dylib
           target/*/release/*.so
@@ -69,7 +69,7 @@ jobs:
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: win-x64
+        name: macos-x64
         path: |
           target/*/release/*.dylib
           target/*/release/*.so
@@ -91,7 +91,7 @@ jobs:
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: win-x64
+        name: macos-arm64
         path: |
           target/*/release/*.dylib
           target/*/release/*.so
@@ -143,7 +143,7 @@ jobs:
         
         echo "Tag: ${TAG}"
         
-        echo gh release create $TAG --draft --notes "Automatically built binaries"
+        gh release create $TAG --draft --notes "Automatically built binaries"
         
         cd target
         
@@ -151,7 +151,7 @@ jobs:
             cd $DIR_NAME
             chmod -R +x .
             tar -czvf $DIR_NAME.tar.gz *
-            echo gh release upload $TAG $DIR_NAME.tar.gz
+            gh release upload $TAG $DIR_NAME.tar.gz
             cd ..
         done
         
