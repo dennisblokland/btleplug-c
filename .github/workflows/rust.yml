@@ -37,7 +37,7 @@ jobs:
     - uses: actions/checkout@v4
 
     - name: Apt-get pre-reqs
-      run: sudo apt install libdbus-1-dev pkg-config -Y
+      run: sudo apt install libdbus-1-dev pkg-config
 
     - name: Build
       run: |
