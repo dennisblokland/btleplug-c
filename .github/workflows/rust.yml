@@ -13,7 +13,7 @@ jobs:
   version:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         ref: ${{ github.head_ref }}
         fetch-depth: 0
@@ -28,18 +28,21 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
   linux-x64:
     runs-on: ubuntu-latest
     needs: [test]
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
     - name: Build
       run: |
-        rustup target add x86_64-unknown-linux-gnu
-        cargo build --release --target x86_64-unknown-linux-gnu      
+        rustup target add x86_64-unknown-linux-gnu --verbose
+        cargo build --release --target x86_64-unknown-linux-gnu --verbose 
+
+    - name: Apt-get pre-reqs
+      run: sudo apt install libdbus-1-dev pkg-config
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v3
@@ -56,13 +59,16 @@ jobs:
     runs-on: ubuntu-latest
     needs: [test]
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
+
+    - name: Apt-get pre-reqs
+      run: sudo apt-get install gcc-aarch64-linux-gnu libdbus-1-dev pkg-config
 
     - name: Build
       run: |
-        sudo apt-get install gcc-aarch64-linux-gnu
         rustup target add aarch64-unknown-linux-gnu
         cargo build \
+          --verbose \
           --release \
           --target aarch64-unknown-linux-gnu \
           --config target.aarch64-unknown-linux-gnu.linker=\"aarch64-linux-gnu-gcc\"     
@@ -82,12 +88,12 @@ jobs:
     runs-on: macos-13
     needs: [test]
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
     - name: Build
       run: |
         rustup target add x86_64-apple-darwin
-        cargo build --release --target x86_64-apple-darwin
+        cargo build --release --target x86_64-apple-darwin --verbose
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v3
@@ -104,12 +110,12 @@ jobs:
     runs-on: macos-13
     needs: [test]
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
     - name: Build
       run: |
         rustup target add aarch64-apple-darwin
-        cargo build --release --target aarch64-apple-darwin
+        cargo build --release --target aarch64-apple-darwin --verbose
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v3
@@ -124,14 +130,14 @@ jobs:
 
   windows-x64:
     runs-on: windows-latest
-    needs: [version, test]
+    needs: [test]
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
     - name: Build
       run: |
         rustup target add x86_64-pc-windows-msvc
-        cargo build --release --target x86_64-pc-windows-msvc
+        cargo build --release --target x86_64-pc-windows-msvc --verbose
     - name: Upload artifacts
       uses: actions/upload-artifact@v3
       with:
