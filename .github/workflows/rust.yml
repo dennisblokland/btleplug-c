@@ -30,7 +30,7 @@ jobs:
     steps:
     - uses: actions/checkout@v3
 
-  linux-amd64:
+  linux-x64:
     runs-on: ubuntu-latest
     needs: [test]
     steps:
@@ -78,7 +78,7 @@ jobs:
           target/release/*.pdb
         retention-days: 1
 
-  macos-amd64:
+  macos-x64:
     runs-on: macos-13
     needs: [test]
     steps:
@@ -145,7 +145,7 @@ jobs:
 
   release-and-tag:
     runs-on: ubuntu-latest
-    needs: [version, linux-amd64, linux-arm64, macos-amd64, macos-arm64, windows-amd64, windows-arm64]
+    needs: [version, linux-x64, linux-arm64, macos-x64, macos-arm64, windows-x64]
     steps:
     - name: Tag the commit
       run: |
