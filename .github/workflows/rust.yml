@@ -42,36 +42,7 @@ jobs:
         cargo build --release --target x86_64-unknown-linux-gnu --verbose 
 
     - name: Apt-get pre-reqs
-      run: sudo apt install libdbus-1-dev pkg-config
-
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v3
-      with:
-        name: win-x64
-        path: |
-          target/*/release/*.dylib
-          target/*/release/*.so
-          target/*/release/*.dll
-          target/*/release/*.pdb
-        retention-days: 1
-
-  linux-arm64:
-    runs-on: ubuntu-latest
-    needs: [test]
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Apt-get pre-reqs
-      run: sudo apt-get install gcc-aarch64-linux-gnu libdbus-1-dev
-
-    - name: Build
-      run: |
-        rustup target add aarch64-unknown-linux-gnu
-        cargo build \
-          --verbose \
-          --release \
-          --target aarch64-unknown-linux-gnu \
-          --config target.aarch64-unknown-linux-gnu.linker=\"aarch64-linux-gnu-gcc\"     
+      run: sudo apt install libdbus-1-dev pkg-config -Y
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v3
@@ -151,7 +122,7 @@ jobs:
 
   release-and-tag:
     runs-on: ubuntu-latest
-    needs: [version, linux-x64, linux-arm64, macos-x64, macos-arm64, windows-x64]
+    needs: [version, linux-x64, macos-x64, macos-arm64, windows-x64]
     steps:
     - name: Tag the commit
       run: |
