@@ -45,7 +45,7 @@ jobs:
         cargo build --release --target x86_64-unknown-linux-gnu --verbose 
 
     - name: Upload artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: linux-x64
         path: |
@@ -137,24 +137,30 @@ jobs:
       with:
         path: target
 
-    - name: Create Github Release
+    - name: Pack binaries
       run: |
-        TAG="$(date -u +"v%Y.%m.%d.%H%M").${GITHUB_SHA::4}"
-        
-        echo "Tag: ${TAG}"
-        
-        gh release create $TAG --draft --notes "Automatically built binaries"
-        
-        cd target
-        
-        for DIR_NAME in * ; do
-            cd $DIR_NAME
-            chmod -R +x .
-            tar -czvf $DIR_NAME.tar.gz *
-            gh release upload $TAG $DIR_NAME.tar.gz
-            cd ..
-        done
-        
-        echo gh release edit $TAG --draft=false
+        tar -czvf binaries.tar.gz target   
+
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ needs.version.outputs.version }}
+        release_name: Release ${{ needs.version.outputs.version }}
+        body: |
+          Automatically generated release
+        draft: true
+        prerelease: false
+
+    - name: Upload Release Asset
+      id: upload-release-asset
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./binaries.tar.gz
+        asset_name: binaries.tar.gz
+        asset_content_type: application/gzip+x-tar
