@@ -130,10 +130,10 @@ jobs:
       run: |
         git config --global user.email "no-reply@vaettir.net"
         git config --global user.name "Tagger"
-        git tag -a ${{ needs.jobs.version.outputs.version }} -m "Version ${{ needs.jobs.version.outputs.version }}"
+        git tag -a ${{ needs.version.outputs.version }} -m "Version ${{ needs.version.outputs.version }}"
         git push --follow-tags
 
-    - uses: actions/download-artifact@v3
+    - uses: actions/download-artifact@v4
       with:
         path: target
 
