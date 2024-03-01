@@ -36,13 +36,13 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    - name: Apt-get pre-reqs
+      run: sudo apt install libdbus-1-dev pkg-config -Y
+
     - name: Build
       run: |
         rustup target add x86_64-unknown-linux-gnu
         cargo build --release --target x86_64-unknown-linux-gnu --verbose 
-
-    - name: Apt-get pre-reqs
-      run: sudo apt install libdbus-1-dev pkg-config -Y
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v3
