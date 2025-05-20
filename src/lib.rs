@@ -1,19 +1,22 @@
+use btleplug::api::{
+    BDAddr, Central, CentralEvent, CharPropFlags, Characteristic, Manager as _, Peripheral as _,
+    ScanFilter, WriteType,
+};
+use btleplug::platform::{Adapter, Manager, Peripheral};
+use btleplug::Error as BleError;
+use btleplug::{Error, Result as BleResult};
+use futures::StreamExt;
 use std::collections::{BTreeSet, HashMap};
 use std::ffi::{c_char, c_int, CString};
 use std::mem::size_of;
 use std::ptr::{null, null_mut};
 use std::slice::from_raw_parts;
-use std::sync::{Arc};
-use btleplug::api::{BDAddr, Central, CentralEvent, Characteristic, CharPropFlags, Manager as _, Peripheral as _, ScanFilter, WriteType};
-use btleplug::{Error, Result as BleResult};
-use btleplug::platform::{Adapter, Manager, Peripheral};
-use btleplug::Error as BleError;
-use futures::{StreamExt};
+use std::sync::Arc;
 use tokio::runtime::Runtime;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
-use log::{info, warn, error, debug, trace, LevelFilter};
+use log::{debug, error, info, trace, warn, LevelFilter};
 
 const SUCCESS: c_int = 0;
 const ERROR_FAIL: c_int = 1;
@@ -30,24 +33,37 @@ const ERROR_UUID: c_int = 109;
 const ERROR_INVALID_BD_ADDR: c_int = 110;
 const ERROR_RUNTIME_ERROR: c_int = 111;
 
-type PeripheralFoundCallback = extern "C" fn(id: u64, peripheral: *mut CPeripheral, services: *const Uuid, service_count: c_int) -> c_int;
+type PeripheralFoundCallback = extern "C" fn(
+    id: u64,
+    peripheral: *mut CPeripheral,
+    services: *const Uuid,
+    service_count: c_int,
+) -> c_int;
 type PeripheralEventCallback = extern "C" fn(id: u64);
 type CompletedCallback = extern "C" fn(result: c_int);
 
 fn set_error_string(module: &*mut CModule, str: CString) {
-    unsafe { *(**module).module.last_error.blocking_lock() = str; }
+    unsafe {
+        *(**module).module.last_error.blocking_lock() = str;
+    }
 }
 
 fn set_error_str(module: &*mut CModule, str: &str) {
-    unsafe { *(**module).module.last_error.blocking_lock() = CString::new(str).unwrap(); }
+    unsafe {
+        *(**module).module.last_error.blocking_lock() = CString::new(str).unwrap();
+    }
 }
 
 fn set_error(module: &*mut CModule, err: &Error) {
-    unsafe { *(**module).module.last_error.blocking_lock() = error_into_cstring(err); }
+    unsafe {
+        *(**module).module.last_error.blocking_lock() = error_into_cstring(err);
+    }
 }
 
 fn set_peripheral_error_str(peripheral: &*mut CPeripheral, str: &str) {
-    unsafe { *(**peripheral).p.last_error.blocking_lock() = CString::new(str).unwrap(); }
+    unsafe {
+        *(**peripheral).p.last_error.blocking_lock() = CString::new(str).unwrap();
+    }
 }
 
 struct ModuleInt {
@@ -67,7 +83,7 @@ impl CModule {
                 runtime,
                 adapter,
                 last_error: Mutex::new(CString::default()),
-            })
+            }),
         }
     }
 }
@@ -107,13 +123,13 @@ pub struct CharacteristicDescriptorDescriptor {
 
 impl CPeripheral {
     fn new(module: Arc<ModuleInt>, peripheral: Peripheral, services: Vec<Uuid>) -> CPeripheral {
-        CPeripheral{
+        CPeripheral {
             module,
-            p: Arc::new(PeripheralHandle{
+            p: Arc::new(PeripheralHandle {
                 peripheral,
                 services,
                 last_error: Mutex::new(CString::default()),
-            })
+            }),
         }
     }
 }
@@ -122,7 +138,7 @@ async fn get_central(manager: &Manager) -> BleResult<Adapter> {
     let adapters = manager.adapters().await?;
     match adapters.into_iter().nth(0) {
         None => Err(BleError::RuntimeError(String::from("No adapters found"))),
-        Some(a) => Ok(a)
+        Some(a) => Ok(a),
     }
 }
 
@@ -154,7 +170,7 @@ unsafe fn error_to_result(e: &Error) -> c_int {
 
 unsafe fn get_long_addr(a: BDAddr) -> u64 {
     let addr = a.into_inner();
-    let mut lbytes = [0u8;8];
+    let mut lbytes = [0u8; 8];
     lbytes[2..].copy_from_slice(&addr);
     u64::from_be_bytes(lbytes)
 }
@@ -177,7 +193,7 @@ pub unsafe extern "C" fn create_module(module: *mut *mut CModule) -> c_int {
     trace!("Enter: create_module");
     *module = null_mut();
 
-    let runtime = match Runtime::new(){
+    let runtime = match Runtime::new() {
         Ok(r) => r,
         Err(e) => {
             warn!("Failed to initialize tokio::Runtime {:?}", e);
@@ -239,23 +255,24 @@ pub unsafe extern "C" fn set_event_callbacks(
             match event {
                 CentralEvent::DeviceDiscovered(id) => {
                     debug!("Device discovered: {:?}", id);
-                    let l_mod = match weak.upgrade()  {
-                        None => { break; }
-                        Some(a) => {a}
+                    let l_mod = match weak.upgrade() {
+                        None => {
+                            break;
+                        }
+                        Some(a) => a,
                     };
                     let adapter = l_mod.adapter.as_ref().unwrap();
                     match adapter.peripheral(&id).await {
                         Ok(p) => {
                             info!("Sending peripheral {:?}", id);
-                            let raw = Box::into_raw(Box::new(CPeripheral::new(Arc::clone(&l_mod), p, Vec::default())));
+                            let raw = Box::into_raw(Box::new(CPeripheral::new(
+                                Arc::clone(&l_mod),
+                                p,
+                                Vec::default(),
+                            )));
                             let addr = get_long_addr((*raw).p.peripheral.address());
                             device_map.insert(id, addr);
-                            if 0 == found(
-                                addr,
-                                raw,
-                                null(),
-                                0
-                            ) {
+                            if 0 == found(addr, raw, null(), 0) {
                                 // The handle was rejected, drop it
                                 free_ptr(raw);
                             }
@@ -267,21 +284,27 @@ pub unsafe extern "C" fn set_event_callbacks(
                 }
                 CentralEvent::ServicesAdvertisement { id, services } => {
                     debug!("Services discovered: {:?} : {:?}", id, services);
-                    let l_mod = match weak.upgrade()  {
-                        None => { break; }
-                        Some(a) => {a}
+                    let l_mod = match weak.upgrade() {
+                        None => {
+                            break;
+                        }
+                        Some(a) => a,
                     };
                     let adapter = l_mod.adapter.as_ref().unwrap();
                     match adapter.peripheral(&id).await {
                         Ok(p) => {
-                            let raw = Box::into_raw(Box::new(CPeripheral::new(Arc::clone(&l_mod), p, Vec::default())));
+                            let raw = Box::into_raw(Box::new(CPeripheral::new(
+                                Arc::clone(&l_mod),
+                                p,
+                                Vec::default(),
+                            )));
                             let addr = get_long_addr((*raw).p.peripheral.address());
                             device_map.insert(id, addr);
                             if 0 == found(
                                 addr,
                                 raw,
                                 (*raw).p.services.as_ptr(),
-                                (*raw).p.services.len() as c_int
+                                (*raw).p.services.len() as c_int,
                             ) {
                                 // The handle was rejected, drop it
                                 free_ptr(raw);
@@ -291,7 +314,7 @@ pub unsafe extern "C" fn set_event_callbacks(
                             error!("Failed to find discovered device for {:#}, {:?}", id, e);
                         }
                     }
-                },
+                }
                 CentralEvent::DeviceDisconnected(id) => {
                     info!("Device disconnected : {:?}", id);
                     match device_map.get(&id) {
@@ -303,9 +326,9 @@ pub unsafe extern "C" fn set_event_callbacks(
                         }
                     }
                 }
-                _ => { }
+                _ => {}
             }
-        };
+        }
         info!("Event listening ended!");
         Ok::<(), BleError>(())
     });
@@ -357,7 +380,10 @@ pub unsafe extern "C" fn start_scan_peripherals(
         }
         _ => {
             error!("Invalid number of filters provided: {service_uuid_count}");
-            set_error_str(&module, "Out of range: service_uuid_count must be in range 1..100");
+            set_error_str(
+                &module,
+                "Out of range: service_uuid_count must be in range 1..100",
+            );
             return ERROR_FAIL;
         }
     };
@@ -399,8 +425,8 @@ pub unsafe extern "C" fn stop_scan_peripherals(module: *mut CModule) -> c_int {
             error!("error in stop_scan: {:?}", e);
             set_error(&module, &e);
             return error_to_result(&e);
-        },
-        _ => {},
+        }
+        _ => {}
     };
 
     trace!("Success: stop_scan_peripherals");
@@ -408,7 +434,10 @@ pub unsafe extern "C" fn stop_scan_peripherals(module: *mut CModule) -> c_int {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn peripheral_get_id(peripheral: *mut CPeripheral, id:*mut *const c_char) -> c_int {
+pub unsafe extern "C" fn peripheral_get_id(
+    peripheral: *mut CPeripheral,
+    id: *mut *const c_char,
+) -> c_int {
     if peripheral.is_null() {
         *id = null();
         return INVALID_ARGUMENT;
@@ -421,7 +450,10 @@ pub unsafe extern "C" fn peripheral_get_id(peripheral: *mut CPeripheral, id:*mut
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn peripheral_get_address(peripheral: *mut CPeripheral, address:*mut u64) -> c_int {
+pub unsafe extern "C" fn peripheral_get_address(
+    peripheral: *mut CPeripheral,
+    address: *mut u64,
+) -> c_int {
     if peripheral.is_null() {
         *address = 0;
         return INVALID_ARGUMENT;
@@ -435,7 +467,10 @@ pub unsafe extern "C" fn peripheral_get_address(peripheral: *mut CPeripheral, ad
 type IsConnectedCallback = extern "C" fn(result: c_int, connected: c_int);
 
 #[no_mangle]
-pub unsafe extern "C" fn peripheral_is_connected(peripheral: *mut CPeripheral, completed_callback: IsConnectedCallback) -> c_int {
+pub unsafe extern "C" fn peripheral_is_connected(
+    peripheral: *mut CPeripheral,
+    completed_callback: IsConnectedCallback,
+) -> c_int {
     trace!("Enter: peripheral_is_connected");
     if peripheral.is_null() {
         error!("null peripheral handle");
@@ -472,7 +507,10 @@ pub unsafe extern "C" fn peripheral_is_connected(peripheral: *mut CPeripheral, c
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn peripheral_connect(peripheral: *mut CPeripheral, completed_callback: CompletedCallback) -> c_int {
+pub unsafe extern "C" fn peripheral_connect(
+    peripheral: *mut CPeripheral,
+    completed_callback: CompletedCallback,
+) -> c_int {
     trace!("Enter: peripheral_connect");
     if peripheral.is_null() {
         error!("null peripheral handle");
@@ -491,7 +529,7 @@ pub unsafe extern "C" fn peripheral_connect(peripheral: *mut CPeripheral, comple
 
     let ap = (*peripheral).p.clone();
     runtime.spawn(async move {
-        match ap.peripheral.connect().await{
+        match ap.peripheral.connect().await {
             Ok(()) => {
                 debug!("Connected");
                 completed_callback(SUCCESS);
@@ -508,7 +546,10 @@ pub unsafe extern "C" fn peripheral_connect(peripheral: *mut CPeripheral, comple
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn peripheral_disconnect(peripheral: *mut CPeripheral, completed_callback: CompletedCallback) -> c_int {
+pub unsafe extern "C" fn peripheral_disconnect(
+    peripheral: *mut CPeripheral,
+    completed_callback: CompletedCallback,
+) -> c_int {
     trace!("Enter: peripheral_disconnect");
     if peripheral.is_null() {
         error!("null peripheral handle");
@@ -527,7 +568,7 @@ pub unsafe extern "C" fn peripheral_disconnect(peripheral: *mut CPeripheral, com
 
     let ap = (*peripheral).p.clone();
     runtime.spawn(async move {
-        match ap.peripheral.disconnect().await{
+        match ap.peripheral.disconnect().await {
             Ok(()) => {
                 debug!("Disconnected");
                 completed_callback(SUCCESS);
@@ -544,7 +585,10 @@ pub unsafe extern "C" fn peripheral_disconnect(peripheral: *mut CPeripheral, com
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn peripheral_discover_services(peripheral: *mut CPeripheral, completed_callback: CompletedCallback) -> c_int {
+pub unsafe extern "C" fn peripheral_discover_services(
+    peripheral: *mut CPeripheral,
+    completed_callback: CompletedCallback,
+) -> c_int {
     trace!("Enter: peripheral_discover_services");
     if peripheral.is_null() {
         error!("null peripheral handle");
@@ -563,7 +607,7 @@ pub unsafe extern "C" fn peripheral_discover_services(peripheral: *mut CPeripher
 
     let ap = (*peripheral).p.clone();
     runtime.spawn(async move {
-        match ap.peripheral.discover_services().await{
+        match ap.peripheral.discover_services().await {
             Ok(()) => {
                 debug!("Disconnected");
                 completed_callback(SUCCESS);
@@ -598,12 +642,21 @@ pub unsafe extern "C" fn peripheral_get_services(
 
     let mut buffer = Vec::new();
     buffer.extend([0u8; 8]);
-    buffer.extend(any_as_u8_slice(&ServiceDescriptors { service_count: services.len() as c_int }));
+    buffer.extend(any_as_u8_slice(&ServiceDescriptors {
+        service_count: services.len() as c_int,
+    }));
     for s in services {
-        let sd = ServiceDescriptor{uuid: s.uuid, characteristic_count: s.characteristics.len() as c_int };
+        let sd = ServiceDescriptor {
+            uuid: s.uuid,
+            characteristic_count: s.characteristics.len() as c_int,
+        };
         buffer.extend(any_as_u8_slice(&sd));
         for c in s.characteristics {
-            let cd = CharacteristicDescriptor{uuid: c.uuid, properties: c.properties, descriptor_count: c.descriptors.len() as c_int };
+            let cd = CharacteristicDescriptor {
+                uuid: c.uuid,
+                properties: c.properties,
+                descriptor_count: c.descriptors.len() as c_int,
+            };
             buffer.extend(any_as_u8_slice(&cd));
             for d in c.descriptors {
                 buffer.extend(any_as_u8_slice(&d.uuid));
@@ -612,10 +665,7 @@ pub unsafe extern "C" fn peripheral_get_services(
     }
 
     unsafe fn any_as_u8_slice<T: Sized>(p: &T) -> &[u8] {
-        from_raw_parts(
-            (p as *const T) as *const u8,
-            size_of::<T>(),
-        )
+        from_raw_parts((p as *const T) as *const u8, size_of::<T>())
     }
 
     let size = buffer.len();
@@ -633,9 +683,7 @@ pub unsafe extern "C" fn peripheral_get_services(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn free_peripheral_services(
-    services: *mut *mut u8,
-) -> c_int {
+pub unsafe extern "C" fn free_peripheral_services(services: *mut *mut u8) -> c_int {
     let i_raw = services as *mut u32;
     let size = *i_raw;
     let cap = *i_raw.offset(1);
@@ -643,7 +691,7 @@ pub unsafe extern "C" fn free_peripheral_services(
     SUCCESS
 }
 
-type NotifyCallback = extern "C" fn (uuid: Uuid, data: *const u8, data_length: c_int);
+type NotifyCallback = extern "C" fn(uuid: Uuid, data: *const u8, data_length: c_int);
 
 #[no_mangle]
 pub unsafe extern "C" fn peripheral_register_notification_events(
@@ -690,7 +738,12 @@ pub unsafe extern "C" fn peripheral_register_notification_events(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn peripheral_subscribe(peripheral: *mut CPeripheral, service_uuid: Uuid, uuid: Uuid, completed_callback: CompletedCallback) -> c_int {
+pub unsafe extern "C" fn peripheral_subscribe(
+    peripheral: *mut CPeripheral,
+    service_uuid: Uuid,
+    uuid: Uuid,
+    completed_callback: CompletedCallback,
+) -> c_int {
     trace!("Enter: peripheral_subscribe");
     if peripheral.is_null() {
         error!("null peripheral handle");
@@ -709,12 +762,16 @@ pub unsafe extern "C" fn peripheral_subscribe(peripheral: *mut CPeripheral, serv
     let runtime = m.runtime.as_ref().unwrap();
     let ap = (*peripheral).p.clone();
     runtime.spawn(async move {
-        match ap.peripheral.subscribe(&Characteristic {
-            service_uuid,
-            uuid,
-            descriptors: BTreeSet::default(),
-            properties: CharPropFlags::empty(),
-        }).await {
+        match ap
+            .peripheral
+            .subscribe(&Characteristic {
+                service_uuid,
+                uuid,
+                descriptors: BTreeSet::default(),
+                properties: CharPropFlags::empty(),
+            })
+            .await
+        {
             Ok(()) => {
                 debug!("Notifications subscribed");
                 completed_callback(SUCCESS)
@@ -731,7 +788,12 @@ pub unsafe extern "C" fn peripheral_subscribe(peripheral: *mut CPeripheral, serv
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn peripheral_unsubscribe(peripheral: *mut CPeripheral, service_uuid: Uuid, uuid: Uuid, completed_callback: CompletedCallback) -> c_int {
+pub unsafe extern "C" fn peripheral_unsubscribe(
+    peripheral: *mut CPeripheral,
+    service_uuid: Uuid,
+    uuid: Uuid,
+    completed_callback: CompletedCallback,
+) -> c_int {
     trace!("Enter: peripheral_unsubscribe");
     if peripheral.is_null() {
         error!("null peripheral handle");
@@ -750,12 +812,16 @@ pub unsafe extern "C" fn peripheral_unsubscribe(peripheral: *mut CPeripheral, se
     let runtime = m.runtime.as_ref().unwrap();
     let ap = (*peripheral).p.clone();
     runtime.spawn(async move {
-        match ap.peripheral.unsubscribe(&Characteristic {
-            service_uuid,
-            uuid,
-            descriptors: BTreeSet::default(),
-            properties: CharPropFlags::empty(),
-        }).await {
+        match ap
+            .peripheral
+            .unsubscribe(&Characteristic {
+                service_uuid,
+                uuid,
+                descriptors: BTreeSet::default(),
+                properties: CharPropFlags::empty(),
+            })
+            .await
+        {
             Ok(()) => {
                 debug!("Notifications Unsubscribed");
                 completed_callback(SUCCESS)
@@ -779,7 +845,7 @@ pub unsafe extern "C" fn peripheral_write(
     with_response: bool,
     data: *mut u8,
     data_length: u32,
-    completed_callback: CompletedCallback
+    completed_callback: CompletedCallback,
 ) -> c_int {
     trace!("Enter: peripheral_write");
     if peripheral.is_null() {
@@ -811,8 +877,16 @@ pub unsafe extern "C" fn peripheral_write(
             descriptors: BTreeSet::default(),
             properties: CharPropFlags::empty(),
         };
-        let write_type = if with_response { WriteType::WithResponse } else {WriteType::WithoutResponse};
-        match ap.peripheral.write(&characteristic, data_arr, write_type).await {
+        let write_type = if with_response {
+            WriteType::WithResponse
+        } else {
+            WriteType::WithoutResponse
+        };
+        match ap
+            .peripheral
+            .write(&characteristic, data_arr, write_type)
+            .await
+        {
             Ok(()) => {
                 debug!("Data written");
                 completed_callback(SUCCESS)
@@ -834,9 +908,7 @@ pub unsafe extern "C" fn get_last_module_error(module: *mut CModule) -> *const c
         return null();
     }
 
-    unsafe {
-        (*module).module.last_error.blocking_lock().as_ptr()
-    }
+    unsafe { (*module).module.last_error.blocking_lock().as_ptr() }
 }
 
 #[no_mangle]
@@ -845,9 +917,7 @@ pub unsafe extern "C" fn peripheral_get_last_error(peripheral: *mut CPeripheral)
         return null();
     }
 
-    unsafe {
-        (*peripheral).p.last_error.blocking_lock().as_ptr()
-    }
+    unsafe { (*peripheral).p.last_error.blocking_lock().as_ptr() }
 }
 
 unsafe fn free_ptr<T>(handle: *mut T) -> c_int {
@@ -864,14 +934,14 @@ pub unsafe extern "C" fn free_module(module: *mut CModule) -> c_int {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn free_peripheral(peripheral:*mut CPeripheral) -> c_int {
+pub unsafe extern "C" fn free_peripheral(peripheral: *mut CPeripheral) -> c_int {
     free_ptr(peripheral)
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn free_string(s: *mut c_char) -> c_int {
     if s.is_null() {
-        return SUCCESS
+        return SUCCESS;
     }
 
     let _ = CString::from_raw(s);
@@ -881,6 +951,5 @@ pub unsafe extern "C" fn free_string(s: *mut c_char) -> c_int {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn it_works() {
-    }
+    fn it_works() {}
 }
