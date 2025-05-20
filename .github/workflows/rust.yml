@@ -5,9 +5,11 @@ on:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
 
 jobs:
   version:
@@ -29,12 +31,45 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
+    - name: Install dependencies
+      run: sudo apt install libdbus-1-dev pkg-config
+    - name: Cache Rust dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+    - name: Run tests
+      run: cargo test --verbose
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install dependencies
+      run: sudo apt install libdbus-1-dev pkg-config
+    - name: Install rustfmt and clippy
+      run: rustup component add rustfmt clippy
+#    - name: Run rustfmt
+#      run: cargo fmt -- --check
+#    - name: Run clippy
+#      run: cargo clippy -- -D warnings
 
   linux-x64:
     runs-on: ubuntu-latest
     needs: [test]
     steps:
     - uses: actions/checkout@v4
+    - name: Cache Rust dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
     - name: Apt-get pre-reqs
       run: sudo apt install libdbus-1-dev pkg-config
@@ -53,13 +88,21 @@ jobs:
           target/*/release/*.so
           target/*/release/*.dll
           target/*/release/*.pdb
-        retention-days: 1
+        retention-days: 7
 
   macos-x64:
     runs-on: macos-13
     needs: [test]
     steps:
     - uses: actions/checkout@v4
+    - name: Cache Rust dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
     - name: Build
       run: |
@@ -75,13 +118,21 @@ jobs:
           target/*/release/*.so
           target/*/release/*.dll
           target/*/release/*.pdb
-        retention-days: 1
+        retention-days: 7
 
   macos-arm64:
     runs-on: macos-13
     needs: [test]
     steps:
     - uses: actions/checkout@v4
+    - name: Cache Rust dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-arm64-${{ hashFiles('**/Cargo.lock') }}
 
     - name: Build
       run: |
@@ -97,18 +148,27 @@ jobs:
           target/*/release/*.so
           target/*/release/*.dll
           target/*/release/*.pdb
-        retention-days: 1
+        retention-days: 7
 
   windows-x64:
     runs-on: windows-latest
     needs: [test]
     steps:
     - uses: actions/checkout@v4
+    - name: Cache Rust dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
     - name: Build
       run: |
         rustup target add x86_64-pc-windows-msvc
         cargo build --release --target x86_64-pc-windows-msvc --verbose
+        
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
@@ -118,11 +178,12 @@ jobs:
           target/*/release/*.so
           target/*/release/*.dll
           target/*/release/*.pdb
-        retention-days: 1
+        retention-days: 7
 
   release-and-tag:
     runs-on: ubuntu-latest
     needs: [version, linux-x64, macos-x64, macos-arm64, windows-x64]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
     - uses: actions/checkout@v4
 
@@ -143,24 +204,22 @@ jobs:
 
     - name: Create Release
       id: create_release
-      uses: actions/create-release@v1
+      uses: softprops/action-gh-release@v1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         tag_name: ${{ needs.version.outputs.version }}
-        release_name: Release ${{ needs.version.outputs.version }}
+        name: Release ${{ needs.version.outputs.version }}
         body: |
-          Automatically generated release
+          # Release ${{ needs.version.outputs.version }}
+          
+          Automatically generated release for btleplug-c.
+          
+          ## Included Artifacts
+          - Linux x64
+          - macOS x64
+          - macOS ARM64 (Apple Silicon)
+          - Windows x64
         draft: true
         prerelease: false
-
-    - name: Upload Release Asset
-      id: upload-release-asset
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./binaries.tar.gz
-        asset_name: binaries.tar.gz
-        asset_content_type: application/gzip+x-tar
+        files: ./binaries.tar.gz
