@@ -90,6 +90,39 @@ jobs:
           target/*/release/*.pdb
         retention-days: 7
 
+  linux-arm64:
+    runs-on: ubuntu-latest
+    needs: [test]
+    steps:
+    - uses: actions/checkout@v4
+    - name: Cache Rust dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Apt-get pre-reqs
+      run: sudo apt install libdbus-1-dev pkg-config
+
+    - name: Build
+      run: |
+        rustup target add aarch64-unknown-linux-gnu
+        cargo build --release --target aarch64-unknown-linux-gnu --verbose 
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: linux-arm64
+        path: |
+          target/*/release/*.dylib
+          target/*/release/*.so
+          target/*/release/*.dll
+          target/*/release/*.pdb
+        retention-days: 7
+
   macos-x64:
     runs-on: macos-13
     needs: [test]
@@ -217,6 +250,7 @@ jobs:
           
           ## Included Artifacts
           - Linux x64
+          - Linux ARM64
           - macOS x64
           - macOS ARM64 (Apple Silicon)
           - Windows x64
